@@ -3,7 +3,7 @@ const { screen } = require("screen");
 const gc = screen.getContext("buffer");
 const native = global.require("native");
 
-/* re-exports from C; src/modules/native/module_native.c has notes about why C */
+/* re-exports from C; bottom of src/modules/native/module_native.c has notes about why these are in C */
 exports.setMap = map => native.setMap(map.trim());
 exports.addSprite = native.addSprite;
 exports.getGrid = native.getGrid;
@@ -55,24 +55,25 @@ exports.setPushables = pushTable => {
 let afterInputs = [];
 exports.afterInput = fn => afterInputs.push(fn);
 exports.onInput = (() => {
-  const { Button } = require('button');
-
   const dpad = {
-    "w": { handlers: [], button: new Button(12, { debounce: 0 }) },
-    "s": { handlers: [], button: new Button(14, { debounce: 0 }) },
-    "a": { handlers: [], button: new Button(13, { debounce: 0 }) },
-    "d": { handlers: [], button: new Button(15, { debounce: 0 }) },
-    "i": { handlers: [], button: new Button( 5, { debounce: 0 }) },
-    "k": { handlers: [], button: new Button( 8, { debounce: 0 }) },
-    "j": { handlers: [], button: new Button( 6, { debounce: 0 }) },
-    "l": { handlers: [], button: new Button( 7, { debounce: 0 }) },
+    "w": { handlers: [], gpio: new GPIO( 5, INPUT_PULLUP), millis: 0 },
+    "s": { handlers: [], gpio: new GPIO( 7, INPUT_PULLUP), millis: 0 },
+    "a": { handlers: [], gpio: new GPIO( 6, INPUT_PULLUP), millis: 0 },
+    "d": { handlers: [], gpio: new GPIO( 8, INPUT_PULLUP), millis: 0 },
+    "i": { handlers: [], gpio: new GPIO(12, INPUT_PULLUP), millis: 0 },
+    "k": { handlers: [], gpio: new GPIO(14, INPUT_PULLUP), millis: 0 },
+    "j": { handlers: [], gpio: new GPIO(13, INPUT_PULLUP), millis: 0 },
+    "l": { handlers: [], gpio: new GPIO(15, INPUT_PULLUP), millis: 0 },
   };
-  for (const { handlers, button } of Object.values(dpad))
-    button.on('click', () => {
-      handlers.forEach(f => f());
-      afterInputs.forEach(f => f());
-      native.map_clear_deltas();
-    });
+  for (const [key, btn] of Object.entries(dpad))
+    btn.gpio.irq(() => {
+      if (!btn.gpio.read() && (millis() - btn.millis) > 150) {
+        handlers.forEach(f => f());
+        afterInputs.forEach(f => f());
+        native.map_clear_deltas();
+        btn.millis = millis();
+      }
+    }, FALLING);
   
   return (key, handler) => {
     if (!(key in dpad)) throw new Error(`the Sprig doesn't have a ${key} button ;)`);
@@ -214,6 +215,9 @@ exports.map = _makeTag(text => text);
       });
       tune.push([duration, ...notes].flat());
     }
+
+    if (tune[tune.length - 1].length == 1)
+      tune.pop();
 
     return tune;
   }
