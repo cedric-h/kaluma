@@ -26,6 +26,7 @@
 
 #define MSTR_I2SAUDIO_WAIT "wait"
 #define MSTR_I2SAUDIO_PUSH_FREQ "push_freq"
+#define MSTR_I2SAUDIO_PRESS_QUEUE_TRY_REMOVE "press_queue_try_remove"
 #define MSTR_I2SAUDIO_MIDI "midi"
 
 

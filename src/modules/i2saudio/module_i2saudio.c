@@ -171,6 +171,134 @@ JERRYXX_FUN(i2saudio_midi_fn) {
   return jerry_create_number(freq);
 }
 
+/* our input handling is a bit onerous, but unlike simpler solutions ... it works.
+ * you see, input polling had too many missed keypresses (go figure!)
+ * but IRQ, the canonical solution, had too many false positives
+ * (wouldn't be surprised if our unsoldered buttons had something to do with this?)
+ *
+ * so in order to filter out the fake keypresses IRQ was registering, we now have
+ * our audio thread poll for those and use the timing between them to filter out
+ * fake ones (if the button is being held down for 5ms, that's probably just noise!)
+ * 
+ * so there's a lot of message passing here, unfortunately.
+ * IRQ has to pass messages to the audio thread, which has to pass messages
+ * to the main thread running your kaluma code. yikes!
+ *
+ * this is done by way of two FIFOs. you can imagine one as being "lower level"
+ * than the other. the lower level one would be button_fifo; that has all of the
+ * events from IRQ, some of which will be false positives. 
+ *
+ *                IRQ -> AUDIO THREAD -> MAIN THREAD
+ *     the first arrow is button_fifo, the second is press_fifo!
+ *
+ */
+
+#define PRESS_FIFO_LENGTH (32)
+queue_t press_fifo;
+typedef struct { uint8_t pin; } PressAction;
+
+#define BUTTON_FIFO_LENGTH (32)
+queue_t button_fifo;
+typedef enum {
+  ButtonActionKind_Down,
+  ButtonActionKind_Up,
+} ButtonActionKind;
+typedef struct {
+  ButtonActionKind kind;
+  absolute_time_t time;
+  uint8_t pindex;
+} ButtonAction;
+
+typedef struct {
+  absolute_time_t last_up, last_down;
+  uint8_t edge;
+} ButtonState;
+
+#define ARR_LEN(x) (sizeof(x) / sizeof(x[0]))
+uint button_pins[] = {  5,  7,  6,  8, 12, 14, 13, 15 };
+
+void gpio_callback(uint gpio, uint32_t events) {
+  for (int i = 0; i < ARR_LEN(button_pins); i++)
+    if (button_pins[i] == gpio) {
+
+      queue_add_blocking(&button_fifo, &(ButtonAction) {
+        .time = get_absolute_time(),
+        .kind = (events == GPIO_IRQ_EDGE_RISE) ? ButtonActionKind_Up : ButtonActionKind_Down,
+        .pindex = i,
+      });
+
+      break;
+    }
+}
+
+static ButtonState button_states[ARR_LEN(button_pins)] = {0};
+static void button_init(void) {
+  queue_init(&button_fifo, sizeof(ButtonAction), BUTTON_FIFO_LENGTH);
+  queue_init(& press_fifo, sizeof(PressAction ),  PRESS_FIFO_LENGTH);
+
+  for (int i = 0; i < ARR_LEN(button_pins); i++) {
+    ButtonState *bs = button_states + i;
+    bs->edge = 1;
+    bs->last_up = bs->last_down = get_absolute_time();
+
+    gpio_set_dir(button_pins[i], GPIO_IN);
+    gpio_pull_up(button_pins[i]);
+    // gpio_set_input_hysteresis_enabled(button_pins[i], 1);
+    // gpio_set_slew_rate(button_pins[i], GPIO_SLEW_RATE_SLOW);
+    // gpio_disable_pulls(button_pins[i]);
+
+    gpio_set_irq_enabled_with_callback(
+      button_pins[i],
+      GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL,
+      true,
+      &gpio_callback
+    );
+  }
+}
+
+static void button_poll(void) {
+  ButtonAction p;
+  if (queue_try_remove(&button_fifo, &p)) {
+    ButtonState *bs = button_states + p.pindex;
+    switch (p.kind) {
+      case ButtonActionKind_Down: bs->last_down = get_absolute_time(); break;
+      case ButtonActionKind_Up:   bs->last_up   = get_absolute_time(); break;
+    }
+  }
+
+  for (int i = 0; i < ARR_LEN(button_pins); i++) {
+    ButtonState *bs = button_states + i;
+
+    absolute_time_t when_up_cooldown = delayed_by_ms(bs->last_up  , 40);
+    absolute_time_t light_when_start = delayed_by_ms(bs->last_down, 20);
+    absolute_time_t light_when_stop  = delayed_by_ms(bs->last_down, 40);
+
+    uint8_t on = absolute_time_diff_us(get_absolute_time(), light_when_start) < 0 &&
+                 absolute_time_diff_us(get_absolute_time(), light_when_stop ) > 0 &&
+                 absolute_time_diff_us(get_absolute_time(), when_up_cooldown) < 0  ;
+
+    // if (on) puts("BRUH");
+
+    if (!on && !bs->edge) bs->edge = 1;
+    if (on && bs->edge) {
+      bs->edge = 0;
+
+      if (!queue_try_add(&press_fifo, &(PressAction) { .pin = button_pins[i] }))
+        puts("press_fifo full!");
+    }
+  }
+}
+
+JERRYXX_FUN(i2saudio_press_queue_try_remove) {
+  PressAction p;
+  if (!queue_try_remove(&press_fifo, &p))
+    return jerry_create_undefined();
+
+  return jerry_create_number(p.pin);
+}
+
+// JERRYXX_FUN(button_check) { return jerry_create_undefined(); }
+
 void core1_entry(void) {
   pio_sm_set_enabled(pio0, 0, false);
   pio_gpio_init(pio0, I2S_CLK_PINS);
@@ -194,6 +322,8 @@ void core1_entry(void) {
 
   pio0->inte0 |= PIO_INTR_SM0_TXNFULL_BITS;
 
+  button_init();
+
   #define VOL (7000)
   for (int i = 0; i < SOUND_SAMPLE_LEN; i++) {
     float t = (float)i / (float)SOUND_SAMPLE_LEN;
@@ -203,38 +333,42 @@ void core1_entry(void) {
     sound_samples[Sound_Sawtooth].data[i] = (0.5f - t)*2 * VOL;
   }
 
+  int i = 0;
+  absolute_time_t sound_finish = get_absolute_time();
+
+  Message message;
   while (true) {
-    int i = 0;
-    int duration = 0;
+    int until_finish = absolute_time_diff_us(get_absolute_time(), sound_finish);
+    /* if you have to go backwards to get to the finish ... lmao */
+    uint8_t done = until_finish < 0;
 
-    Message message;
-    while(true) {
-      queue_remove_blocking(&message_fifo, &message);
+    if (done) {
+      /* turn 'em off and wait for more data */
+      for (int i = 0; i < CHANNEL_COUNT; i++)
+        state.channels[i].volume = 0;
 
-      if (message.kind == MessageKind_PushFreq) {
-        switch (message.sound) {
-        case Sound_Sine    : puts("Sound_Sine    "); break;
-        case Sound_Square  : puts("Sound_Square  "); break;
-        case Sound_Triangle: puts("Sound_Triangle"); break;
-        case Sound_Sawtooth: puts("Sound_Sawtooth"); break;
-        default: puts("Sound_Wtf"); break;
+      while (queue_try_remove(&message_fifo, &message)) {
+        if (message.kind == MessageKind_PushFreq) {
+          switch (message.sound) {
+          case Sound_Sine    : puts("Sound_Sine    "); break;
+          case Sound_Square  : puts("Sound_Square  "); break;
+          case Sound_Triangle: puts("Sound_Triangle"); break;
+          case Sound_Sawtooth: puts("Sound_Sawtooth"); break;
+          default: puts("Sound_Wtf"); break;
+          }
+
+          Channel *chan = state.channels + i++;
+          chan->volume = 1500;
+          chan->delta = freq_to_delta(message.freq);
+          chan->sound = message.sound;
+        } else if (message.kind == MessageKind_Wait) {
+          sound_finish = delayed_by_ms(get_absolute_time(), message.duration);
+          break;
         }
-
-        Channel *chan = state.channels + i++;
-        chan->volume = 1500;
-        chan->delta = freq_to_delta(message.freq);
-        chan->sound = message.sound;
-      } else if (message.kind == MessageKind_Wait) {
-        duration = message.duration;
-        break;
       }
-    };
+    }
 
-    sleep_ms(duration);
-
-    /* turn 'em off and wait for more data */
-    for (int i = 0; i < CHANNEL_COUNT; i++)
-      state.channels[i].volume = 0;
+    button_poll();
   }
 }
 
@@ -242,6 +376,7 @@ jerry_value_t module_i2saudio_init(void) {
 
   static int core_needs_init = 1;
   if (core_needs_init) {
+    puts("launching audio core");
     core_needs_init = 0;
     queue_init(&message_fifo, sizeof(Message), FIFO_LENGTH);
     multicore_launch_core1(core1_entry);
@@ -252,6 +387,8 @@ jerry_value_t module_i2saudio_init(void) {
 
   jerryxx_set_property_function(exports, MSTR_I2SAUDIO_WAIT, i2saudio_wait_fn);
   jerryxx_set_property_function(exports, MSTR_I2SAUDIO_PUSH_FREQ, i2saudio_push_freq_fn);
+
+  jerryxx_set_property_function(exports, MSTR_I2SAUDIO_PRESS_QUEUE_TRY_REMOVE, i2saudio_press_queue_try_remove);
 
   jerryxx_set_property_function(exports, MSTR_I2SAUDIO_MIDI, i2saudio_midi_fn);
   return exports;

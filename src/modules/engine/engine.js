@@ -1,7 +1,8 @@
 const { GPIO } = require("gpio");
 const { screen } = require("screen");
 const gc = screen.getContext("buffer");
-const native = global.require("native");
+const native = require("native");
+const audio = require("i2saudio");
 
 /* re-exports from C; bottom of src/modules/native/module_native.c has notes about why these are in C */
 exports.setMap = map => native.setMap(map.trim());
@@ -54,32 +55,46 @@ exports.setPushables = pushTable => {
 
 let afterInputs = [];
 exports.afterInput = fn => afterInputs.push(fn);
-exports.onInput = (() => {
-  const dpad = {
-    "w": { handlers: [], gpio: new GPIO( 5, INPUT_PULLUP), millis: 0 },
-    "s": { handlers: [], gpio: new GPIO( 7, INPUT_PULLUP), millis: 0 },
-    "a": { handlers: [], gpio: new GPIO( 6, INPUT_PULLUP), millis: 0 },
-    "d": { handlers: [], gpio: new GPIO( 8, INPUT_PULLUP), millis: 0 },
-    "i": { handlers: [], gpio: new GPIO(12, INPUT_PULLUP), millis: 0 },
-    "k": { handlers: [], gpio: new GPIO(14, INPUT_PULLUP), millis: 0 },
-    "j": { handlers: [], gpio: new GPIO(13, INPUT_PULLUP), millis: 0 },
-    "l": { handlers: [], gpio: new GPIO(15, INPUT_PULLUP), millis: 0 },
-  };
-  for (const [key, btn] of Object.entries(dpad))
-    btn.gpio.irq(() => {
-      if (!btn.gpio.read() && (millis() - btn.millis) > 150) {
-        handlers.forEach(f => f());
-        afterInputs.forEach(f => f());
-        native.map_clear_deltas();
-        btn.millis = millis();
-      }
-    }, FALLING);
-  
-  return (key, handler) => {
-    if (!(key in dpad)) throw new Error(`the Sprig doesn't have a ${key} button ;)`);
-    dpad[key].handlers.push(handler);
-  };
-})();
+
+const button = {
+  pinToHandlers: {
+     "5": [],
+     "7": [],
+     "6": [],
+     "8": [],
+    "12": [],
+    "14": [],
+    "13": [],
+    "15": [],
+  },
+  keyToPin: {
+    "w":  "5",
+    "s":  "7",
+    "a":  "6",
+    "d":  "8",
+    "i": "12",
+    "k": "14",
+    "j": "13",
+    "l": "15",
+  }
+};
+
+const press = pin => {
+  button.pinToHandlers[pin].forEach(f => f());
+
+  afterInputs.forEach(f => f());
+
+  native.map_clear_deltas();
+};
+
+exports.onInput = (key, fn) => {
+  const pin = button.keyToPin[key];
+
+  if (pin === undefined)
+    throw new Error(`the sprig doesn't have a "${key}" button!`);
+
+  button.pinToHandlers[pin].push(fn);
+};
 
 function _makeTag(cb) {
   return (strings, ...interps) => {
@@ -250,7 +265,6 @@ exports.map = _makeTag(text => text);
 
   const INSTRUMENTS = ["sine", "triangle", "square", "sawtooth"];
 
-  const audio = require("i2saudio");
   function playTuneHelper(tune, number, playingRef) {
     for (let i = 0; i < tune.length*number; i++) {
       const index = i%tune.length;
@@ -300,6 +314,12 @@ setInterval(() => {
   const { render } = native;
   
   pixels.fill(gc.color16(0, 0, 0));
+
+  while (true) {
+    const pin = audio.press_queue_try_remove();
+    if (pin === undefined)break;
+    press(pin);
+  }
 
   render(pixels, 0);
   screen.fillImage(0, 0, width, height, new Uint8Array(pixels.buffer));

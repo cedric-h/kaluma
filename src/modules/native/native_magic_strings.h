@@ -38,6 +38,8 @@
 #define MSTR_NATIVE_height "height"
 #define MSTR_NATIVE_getAll "getAll"
 
+#define MSTR_NATIVE_button_check "button_check"
+
 #define MSTR_NATIVE_map_clear_deltas "map_clear_deltas"
 
 #define MSTR_NATIVE_solids_push "solids_push"
