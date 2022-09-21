@@ -331,6 +331,7 @@ static Sprite *map_alloc(void) {
   for (int i = 0; i < SPRITE_COUNT; i++) {
     if (state->sprite_slot_active[i] == 0) {
       state->sprite_slot_active[i] = 1;
+      printf("uh, %d\n", i);
       return state->sprite_pool + i;
     }
   }
@@ -654,6 +655,7 @@ WASM_EXPORT void legend_doodle_set(char kind, char *str) {
   } while (*str++);
 }
 WASM_EXPORT void legend_clear(void) {
+  state->render->doodle_index_count = 0;
   __builtin_memset(&state->render->legend, 0, sizeof(state->render->legend));
   __builtin_memset(&state->render->legend_resized, 0, sizeof(state->render->legend_resized));
   __builtin_memset(&state->render->legend_doodled, 0, sizeof(state->render->legend_doodled));
