@@ -261,15 +261,15 @@ static void button_poll(void) {
   if (queue_try_remove(&button_fifo, &p)) {
     ButtonState *bs = button_states + p.pindex;
     switch (p.kind) {
-      case ButtonActionKind_Down: bs->last_down = get_absolute_time(); break;
-      case ButtonActionKind_Up:   bs->last_up   = get_absolute_time(); break;
+      case ButtonActionKind_Down: bs->last_down = p.time; break;
+      case ButtonActionKind_Up:   bs->last_up   = p.time; break;
     }
   }
 
   for (int i = 0; i < ARR_LEN(button_pins); i++) {
     ButtonState *bs = button_states + i;
 
-    absolute_time_t when_up_cooldown = delayed_by_ms(bs->last_up  , 40);
+    absolute_time_t when_up_cooldown = delayed_by_ms(bs->last_up  , 70);
     absolute_time_t light_when_start = delayed_by_ms(bs->last_down, 20);
     absolute_time_t light_when_stop  = delayed_by_ms(bs->last_down, 40);
 
