@@ -265,10 +265,9 @@ exports.map = _makeTag(text => text);
 
   const INSTRUMENTS = ["sine", "triangle", "square", "sawtooth"];
 
-  function playTuneHelper(tune, number, playingRef) {
+  function *playTuneHelper(tune, number) {
     for (let i = 0; i < tune.length*number; i++) {
       const index = i%tune.length;
-      if (!playingRef.playing) break;
       const noteSet = tune[index];
       const sleepTime = noteSet[0];
       
@@ -283,25 +282,36 @@ exports.map = _makeTag(text => text);
 
         const i = INSTRUMENTS.indexOf(instrument);
         if ((i >= 0) && f !== undefined)
-          audio.push_freq(f, i);
+          while (audio.push_freq(f, i)) yield true;
       }
-      audio.wait(sleepTime);
+
+      while (audio.wait(sleepTime)) yield true;
     }
   }
 
+  let tunes = [];
+
+  exports.tunePoll = function() {
+    tunes = tunes.filter(t => t.generator.next().value);
+  }
+
   exports.playTune = function(tune, number = 1) {
-    let playingRef = { playing: true };
+    /* this code originally used async with promises
+     * we're switching to generators that poll
+     *
+     * (because we don't trust kaluma's async runtime,
+     *  and because having control over when the poll
+     *  happens relative to the other things our "operating
+     *  system" does on a regular basis is useful)
+     */
 
-    playTuneHelper(textToTune(tune), number, playingRef);
+    const tune = {
+      generator: playTuneHelper(textToTune(tune), number),
+      /* TODO: end, isPlaying */
+    }
 
-    return {
-      end() {
-        playingRef.playing = false;
-      },
-      isPlaying() {
-        return playingRef.playing;
-      },
-    };
+    tunes.push(tune);
+    return tune;
   }
 }
 

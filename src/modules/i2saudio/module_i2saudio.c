@@ -132,10 +132,12 @@ JERRYXX_FUN(i2saudio_wait_fn) {
   uint16_t v = jerry_value_as_uint32(JERRYXX_GET_ARG(0));
 
   Message msg = { .kind = MessageKind_Wait, .duration = v };
-  if (!queue_try_add(&message_fifo, &msg))
-    printf("FIFO was full\n");
 
-  return jerry_create_undefined();
+  /* returns true if you need to wait
+   * if we were able to add your thing to the fifo, we don't need to wait.
+   * queue_try_add returns true if your thing was added to the fifo.
+   * therefore, you need to wait if queue_try_add doesn't return true */
+  return jerry_create_boolean(!queue_try_add(&message_fifo, &msg));
 }
 
 JERRYXX_FUN(i2saudio_push_freq_fn) {
@@ -144,10 +146,12 @@ JERRYXX_FUN(i2saudio_push_freq_fn) {
   Sound sound = JERRYXX_GET_ARG_NUMBER(1);
 
   Message msg = { .kind = MessageKind_PushFreq, .sound = sound, .freq = v };
-  if (!queue_try_add(&message_fifo, &msg))
-    printf("FIFO was full\n");
 
-  return jerry_create_undefined();
+  /* returns true if you need to wait
+   * if we were able to add your thing to the fifo, we don't need to wait.
+   * queue_try_add returns true if your thing was added to the fifo.
+   * therefore, you need to wait if queue_try_add doesn't return true */
+  return jerry_create_boolean(!queue_try_add(&message_fifo, &msg));
 }
 
 // JERRYXX_FUN(i2saudio_setvolume1_fn) {
