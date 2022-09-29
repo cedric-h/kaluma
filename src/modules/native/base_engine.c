@@ -58,7 +58,7 @@ static uint8_t map_active(Sprite *s, uint32_t generation);
 typedef struct { Sprite *sprite; int x, y; uint8_t dirty; } MapIter;
 
 #define PER_CHAR (255)
-#define PER_DOODLE (30)
+#define PER_DOODLE (40)
 #define SPRITE_COUNT (1 << 8)
 
 #define MAP_SIZE_X (20)
@@ -331,7 +331,6 @@ static Sprite *map_alloc(void) {
   for (int i = 0; i < SPRITE_COUNT; i++) {
     if (state->sprite_slot_active[i] == 0) {
       state->sprite_slot_active[i] = 1;
-      printf("uh, %d\n", i);
       return state->sprite_pool + i;
     }
   }

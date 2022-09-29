@@ -71,7 +71,7 @@ static struct {
 } state;
 
 #define SOUND_SAMPLE_LEN (1 << 9)
-typedef struct { int data[SOUND_SAMPLE_LEN]; } SoundSample;
+typedef struct { uint16_t data[SOUND_SAMPLE_LEN]; } SoundSample;
 static SoundSample sound_samples[Sound_COUNT];
 #define MAX_PHASE (0xffffff)
 
@@ -82,7 +82,6 @@ void pio0_irq_0_handler(void) {
   ints >>= 8;
   pio0->irq = ints;
 
-  /* square wave */
   for (int i = 0; i < CHANNEL_COUNT; i++) {
     Channel *chan = state.channels + i;
 
@@ -328,29 +327,48 @@ void core1_entry(void) {
 
   button_init();
 
-  #define VOL (7000)
+  #define VOL (15000)
   for (int i = 0; i < SOUND_SAMPLE_LEN; i++) {
     float t = (float)i / (float)SOUND_SAMPLE_LEN;
-    sound_samples[Sound_Sine    ].data[i] = sinf(t * M_PI * 2) * VOL;
-    sound_samples[Sound_Square  ].data[i] = (t > 0.5f) ? VOL : -VOL;
-    sound_samples[Sound_Triangle].data[i] = 2.0f*fabsf(0.5f - fmodf(t, 1.0f)) * VOL;
-    sound_samples[Sound_Sawtooth].data[i] = (0.5f - t)*2 * VOL;
+
+    t = fmodf(t * 2.0f, 1.0f);
+    sound_samples[Sound_Sine    ].data[i] = (0.5 + 0.5 * cosf(t * M_PI * 2)) * VOL * 2.1;
+    sound_samples[Sound_Triangle].data[i] = 2.0f*fabsf(0.5f - t) * VOL;
+    sound_samples[Sound_Square  ].data[i] = (t > 0.5f) ? (VOL*0.3f) : 0;
+    sound_samples[Sound_Sawtooth].data[i] = t * VOL * 0.3f;
+
+    // sound_samples[Sound_Sine    ].data[i] = (0.5f + 0.5f*sinf(t * M_PI * 2)) * (float)VOL;
+    // sound_samples[Sound_Square  ].data[i] = VOL + ((t > 0.5f) ? VOL : -VOL);
+    // printf("sound_samples[Sound_Sine].data[i]=%d\n", sound_samples[Sound_Sine].data[i]);
+    // printf("sound_samples[Sound_Square].data[i]=%d\n", sound_samples[Sound_Square].data[i]);
+    // sound_samples[Sound_Triangle].data[i] = 2.0f*fabsf(0.5f - t) * VOL;
+    // sound_samples[Sound_Sawtooth].data[i] = fmodf(t, 0.5f)*2.0f * VOL;
   }
 
-  int i = 0;
   absolute_time_t sound_finish = get_absolute_time();
+
+  Channel *next_chan = state.channels;
+  /* used to track rising edge of note_done */
+  uint8_t playing_note = 0;
 
   Message message;
   while (true) {
     int until_finish = absolute_time_diff_us(get_absolute_time(), sound_finish);
     /* if you have to go backwards to get to the finish ... lmao */
-    uint8_t done = until_finish < 0;
+    uint8_t note_done = until_finish < 0;
 
-    if (done) {
-      /* turn 'em off and wait for more data */
-      for (int i = 0; i < CHANNEL_COUNT; i++)
-        state.channels[i].volume = 0;
+    if (note_done) {
+      if (playing_note) {
+        playing_note = 0;
 
+        next_chan = state.channels;
+
+        /* turn 'em off and wait for more data */
+        for (int i = 0; i < CHANNEL_COUNT; i++)
+          state.channels[i].volume = 0;
+      }
+
+      /* fill up the channels with our note data */
       while (queue_try_remove(&message_fifo, &message)) {
         if (message.kind == MessageKind_PushFreq) {
           switch (message.sound) {
@@ -361,12 +379,17 @@ void core1_entry(void) {
           default: puts("Sound_Wtf"); break;
           }
 
-          Channel *chan = state.channels + i++;
-          chan->volume = 1500;
-          chan->delta = freq_to_delta(message.freq);
-          chan->sound = message.sound;
+          if ((next_chan - state.channels) >= CHANNEL_COUNT) {
+            puts("ran out of audio channels somehow");
+          } else {
+            Channel *chan = next_chan++;
+            chan->volume = 1500;
+            chan->delta = freq_to_delta(message.freq);
+            chan->sound = message.sound;
+          }
         } else if (message.kind == MessageKind_Wait) {
           sound_finish = delayed_by_ms(get_absolute_time(), message.duration);
+          playing_note = 1;
           break;
         }
       }

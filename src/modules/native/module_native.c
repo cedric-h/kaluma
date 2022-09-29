@@ -74,7 +74,6 @@ JERRYXX_FUN(native_legend_doodle_set_fn) {
   );
   tmp[nbytes] = '\0'; 
 
-  puts(tmp);
   legend_doodle_set(jerry_value_to_char(JERRYXX_GET_ARG(0)), tmp);
 
   return jerry_create_undefined();

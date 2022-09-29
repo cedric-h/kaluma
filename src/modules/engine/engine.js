@@ -109,7 +109,7 @@ exports.bitmap = _makeTag(text => text);
 exports.tune = _makeTag(text => text);
 exports.map = _makeTag(text => text);
 
-{
+const tunePoll = (() => {
   const tones = {
     "B0": 31,
     "C1": 33,
@@ -263,10 +263,11 @@ exports.map = _makeTag(text => text);
     return tune.map(notesToString).join(',\n');
   }
 
-  const INSTRUMENTS = ["sine", "triangle", "square", "sawtooth"];
+  const INSTRUMENTS = ["sine", "square", "triangle", "sawtooth"];
 
   function *playTuneHelper(tune, number) {
     for (let i = 0; i < tune.length*number; i++) {
+      console.log("queueing chord");
       const index = i%tune.length;
       const noteSet = tune[index];
       const sleepTime = noteSet[0];
@@ -281,6 +282,7 @@ exports.map = _makeTag(text => text);
           : 2**((note-69)/12)*440;
 
         const i = INSTRUMENTS.indexOf(instrument);
+        console.log(i);
         if ((i >= 0) && f !== undefined)
           while (audio.push_freq(f, i)) yield true;
       }
@@ -290,9 +292,14 @@ exports.map = _makeTag(text => text);
   }
 
   let tunes = [];
+  const log = x => (console.log('tune log: ' + x), x);
 
-  exports.tunePoll = function() {
-    tunes = tunes.filter(t => t.generator.next().value);
+  let ret = function() {
+    tunes = tunes.filter(t => {
+      log(process.memoryUsage());
+      return log(t.generator.next().value);
+    });
+    log(tunes.length + ' tunes left');
   }
 
   exports.playTune = function(tune, number = 1) {
@@ -305,15 +312,18 @@ exports.map = _makeTag(text => text);
      *  system" does on a regular basis is useful)
      */
 
-    const tune = {
-      generator: playTuneHelper(textToTune(tune), number),
+    const ret = {
+      generator: log(playTuneHelper(textToTune(tune), number)),
       /* TODO: end, isPlaying */
     }
+    log('after ret construct' + JSON.stringify(process.memoryUsage()));
 
-    tunes.push(tune);
-    return tune;
+    tunes.push(ret);
+    return ret;
   }
-}
+  
+  return ret;
+})();
 
 setInterval(() => {
   /* I have no idea how this is going to hold up if you reload the module
@@ -324,10 +334,12 @@ setInterval(() => {
   const { render } = native;
   
   pixels.fill(gc.color16(0, 0, 0));
+  tunePoll();
 
+  /* gobble up all yummy tasty input events */
   while (true) {
     const pin = audio.press_queue_try_remove();
-    if (pin === undefined)break;
+    if (pin === undefined) break;
     press(pin);
   }
 
