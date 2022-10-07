@@ -338,6 +338,7 @@ static Sprite *map_alloc(void) {
   return 0;
 }
 static void map_free(Sprite *s) {
+  memset(s, 0, sizeof(Sprite));
   size_t i = s - state->sprite_pool;
   state->sprite_slot_active    [i] = 0;
   state->sprite_slot_generation[i]++;
@@ -380,6 +381,7 @@ static void map_pluck(Sprite *s) {
  * see map_plop about caller's responsibility */
 static void map_plop(Sprite *sprite) {
   Sprite *top = state->map[sprite->x][sprite->y];
+  printf("top at (%d, %d) is: %ld/%d\n", sprite->x, sprite->y, (long int)(top - state->sprite_pool), SPRITE_COUNT);
 
   /* we want the sprite with the lowest z-order on the top. */
 
@@ -387,6 +389,7 @@ static void map_plop(Sprite *sprite) {
   if (top == 0 || Z_ORDER(top) >= Z_ORDER(sprite)) {
     sprite->next = state->map[sprite->x][sprite->y];
     state->map[sprite->x][sprite->y] = sprite;
+    puts("top's me, early ret");
     return;
   }
 
@@ -395,6 +398,9 @@ static void map_plop(Sprite *sprite) {
     insert_after = insert_after->next;
   #undef Z_ORDER
 
+  printf("insert_after's : %ld/%d\n", (long int)(insert_after - state->sprite_pool), SPRITE_COUNT);
+  if (insert_after->next) printf("insert_after->next's : %ld/%d\n", (long int)(insert_after->next - state->sprite_pool), SPRITE_COUNT);
+  printf("sprite's: %ld/%d ofc\n", (long int)(sprite - state->sprite_pool), SPRITE_COUNT);
   sprite->next = insert_after->next;
   insert_after->next = sprite;
 }
@@ -402,8 +408,11 @@ static void map_plop(Sprite *sprite) {
 
 WASM_EXPORT Sprite *map_add(int x, int y, char kind) {
   Sprite *s = map_alloc();
+  printf("alloc ret: %ld/%d\n", (long int)(s - state->sprite_pool), SPRITE_COUNT);
   *s = (Sprite) { .x = x, .y = y, .kind = kind };
+  puts("assigned to that mf");
   map_plop(s);
+  puts("stuck 'em on map, returning now");
   return s;
 }
 

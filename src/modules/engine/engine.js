@@ -19,6 +19,7 @@ exports.setBackground = native.setBackground;
 
 /* opts: x, y, color (all optional) */
 exports.addText = (str, opts={}) => {
+  console.log("engine.js:addText");
   const CHARS_MAX_X = 21;
   const padLeft = Math.floor((CHARS_MAX_X - str.length)/2);
 
@@ -34,6 +35,7 @@ exports.clearText = () => native.text_clear();
 
 
 exports.setLegend = (...bitmaps) => {
+  console.log("engine.js:setLegend");
   native.legend_clear();
   for (const [charStr, bitmap] of bitmaps) {
     native.legend_doodle_set(charStr, bitmap.trim());
@@ -42,11 +44,13 @@ exports.setLegend = (...bitmaps) => {
 };
 
 exports.setSolids = solids => {
+  console.log("engine.js:setSolids");
   native.solids_clear();
   solids.forEach(native.solids_push);
 };
 
 exports.setPushables = pushTable => {
+  console.log("engine.js:setPushables");
   native.push_table_clear();
   for (const [pusher, pushesList] of Object.entries(pushTable))
     for (const pushes of pushesList)
@@ -54,7 +58,7 @@ exports.setPushables = pushTable => {
 };
 
 let afterInputs = [];
-exports.afterInput = fn => afterInputs.push(fn);
+exports.afterInput = fn => (console.log('afterInputs'), afterInputs.push(fn));
 
 const button = {
   pinToHandlers: {
@@ -88,6 +92,7 @@ const press = pin => {
 };
 
 exports.onInput = (key, fn) => {
+  console.log("engine.js:onInput");
   const pin = button.keyToPin[key];
 
   if (pin === undefined)
@@ -212,16 +217,26 @@ const tunePoll = (() => {
   const reverseInstrumentKey = Object.fromEntries(Object.entries(instrumentKey).map(([k, v]) => [v, k]));
 
   function textToTune(text) {
+    console.log("in textToTune! oh baby");
     const elements = text.replace(/\s/g, '').split(',');
+    console.log("after elements split");
     const tune = [];
 
     for (const element of elements) {
+      console.log("iterating through elements");
       if (!element) continue;
       const [durationRaw, notesRaw] = element.split(':');
+      console.log("split duration from notes");
+
       const duration = Math.round(parseInt(durationRaw));
+      console.log("rounded duration");
+
       const notes = (notesRaw || '').split('+').map((noteRaw) => {
+        console.log("iterating on frequency");
+
         if (!noteRaw) return [];
         const [, pitchRaw, instrumentRaw, durationRaw] = noteRaw.match(/^(.+)([~\-^\/])(.+)$/);
+        console.log("after noteRaw regex");
         return [
           instrumentKey[instrumentRaw],
           isNaN(parseInt(pitchRaw, 10)) ? pitchRaw : parseInt(pitchRaw, 10),
@@ -266,6 +281,8 @@ const tunePoll = (() => {
   const INSTRUMENTS = ["sine", "square", "triangle", "sawtooth"];
 
   function *playTuneHelper(tune, number) {
+    console.log("in play tune helper!");
+
     for (let i = 0; i < tune.length*number; i++) {
       console.log("queueing chord");
       const index = i%tune.length;
@@ -292,7 +309,7 @@ const tunePoll = (() => {
   }
 
   let tunes = [];
-  const log = x => (console.log('tune log: ' + x), x);
+  const log = x => x; // (console.log('tune log: ' + x), x);
 
   let ret = function() {
     tunes = tunes.filter(t => {
@@ -303,6 +320,7 @@ const tunePoll = (() => {
   }
 
   exports.playTune = function(tune, number = 1) {
+    console.log("engine.js:playTune");
     /* this code originally used async with promises
      * we're switching to generators that poll
      *

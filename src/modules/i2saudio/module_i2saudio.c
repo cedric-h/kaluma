@@ -224,6 +224,7 @@ void gpio_callback(uint gpio, uint32_t events) {
   for (int i = 0; i < ARR_LEN(button_pins); i++)
     if (button_pins[i] == gpio) {
 
+      puts("is it possible? conceivable?");
       queue_add_blocking(&button_fifo, &(ButtonAction) {
         .time = get_absolute_time(),
         .kind = (events == GPIO_IRQ_EDGE_RISE) ? ButtonActionKind_Up : ButtonActionKind_Down,
@@ -401,13 +402,10 @@ void core1_entry(void) {
 
 jerry_value_t module_i2saudio_init(void) {
 
-  static int core_needs_init = 1;
-  if (core_needs_init) {
-    puts("launching audio core");
-    core_needs_init = 0;
-    queue_init(&message_fifo, sizeof(Message), FIFO_LENGTH);
-    multicore_launch_core1(core1_entry);
-  }
+  puts("launching audio core");
+  queue_init(&message_fifo, sizeof(Message), FIFO_LENGTH);
+  multicore_reset_core1();
+  multicore_launch_core1(core1_entry);
 
   jerry_value_t exports = jerry_create_object();
   // jerryxx_set_property_function(exports, MSTR_I2SAUDIO_TICKS, i2saudio_ticks_fn);
