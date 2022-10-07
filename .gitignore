@@ -2,7 +2,7 @@
 build
 .dep
 
-"src/modules/native/parse_tune/a.out"
+src/modules/native/parse_tune/a.out
 
 # Node.js modules
 node_modules
