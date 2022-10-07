@@ -52,6 +52,11 @@
 #define MSTR_NATIVE_legend_clear "legend_clear"
 #define MSTR_NATIVE_legend_prepare "legend_prepare"
 
+#define MSTR_NATIVE_note_reader_alloc "note_reader_alloc"
+#define MSTR_NATIVE_note_reader_free  "note_reader_free"
+#define MSTR_NATIVE_note_reader_step  "note_reader_step"
+#define MSTR_NATIVE_note_reader_reset "note_reader_reset"
+
 #define MSTR_NATIVE_NATIVE "native"
 #define MSTR_NATIVE_ADDR "addr"
 #define MSTR_NATIVE_OBJ "obj"

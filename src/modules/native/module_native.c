@@ -21,6 +21,9 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <ctype.h>
+#include <stdlib.h>
+#include <string.h>
 
 static void oom(void) { puts("sprite alloc overflow (TODO: gendex)"); }
 #include "base_engine.c"
@@ -670,6 +673,46 @@ JERRYXX_FUN(native_sprdraw_fn) {
   return jerry_create_undefined();
 }
 
+/*
+  jerry_value_t obj = JERRYXX_GET_ARG(0);
+  return jerry_create_number((double)obj);
+
+  JERRYXX_CHECK_ARG_NUMBER(0, "address");
+  return (jerry_value_t)(uint32_t)JERRYXX_GET_ARG_NUMBER(0);
+*/
+
+#include "parse_tune/parse_tune.h"
+JERRYXX_FUN(native_note_reader_alloc) {
+  jerry_value_t tune = JERRYXX_GET_ARG(0);
+  
+  jerry_size_t tunestr_len = jerry_get_string_size(tune);
+  NoteReadState *nrs = calloc(1, sizeof(NoteReadState) + tunestr_len + 1);
+
+  char *str = ((char *)nrs) + sizeof(NoteReadState);
+  jerry_size_t copied_bytes = jerry_string_to_char_buffer(tune, (jerry_char_t *)str, tunestr_len);
+  str[copied_bytes] = '\0';
+
+  nrs->str = nrs->str_complete = str;
+
+  return jerry_create_number((double)(uint32_t)nrs);
+}
+JERRYXX_FUN(native_note_reader_free ) {
+  NoteReadState *nrs = (NoteReadState *)(uint32_t)JERRYXX_GET_ARG_NUMBER(0);
+  free(nrs);
+  return jerry_create_undefined();
+}
+JERRYXX_FUN(native_note_reader_step ) {
+  NoteReadState *nrs = (NoteReadState *)(uint32_t)JERRYXX_GET_ARG_NUMBER(0);
+  return jerry_create_boolean(tune_parse(nrs));
+}
+JERRYXX_FUN(native_note_reader_reset) {
+  NoteReadState *nrs = (NoteReadState *)(uint32_t)JERRYXX_GET_ARG_NUMBER(0);
+  nrs->str = nrs->str_complete;
+  nrs->open = 0;
+  return jerry_create_undefined();
+}
+
+
 jerry_value_t module_native_init() {
   /* this feels like it should be namespaced, but whatever */
   init();
@@ -712,6 +755,10 @@ jerry_value_t module_native_init() {
   jerryxx_set_property_function(exports, MSTR_NATIVE_legend_clear, native_legend_clear_fn);
   jerryxx_set_property_function(exports, MSTR_NATIVE_legend_prepare, native_legend_prepare_fn);
 
+  jerryxx_set_property_function(exports, MSTR_NATIVE_note_reader_alloc, native_note_reader_alloc);
+  jerryxx_set_property_function(exports, MSTR_NATIVE_note_reader_free , native_note_reader_free );
+  jerryxx_set_property_function(exports, MSTR_NATIVE_note_reader_step , native_note_reader_step );
+  jerryxx_set_property_function(exports, MSTR_NATIVE_note_reader_reset, native_note_reader_reset);
 
   jerryxx_set_property_function(exports, MSTR_NATIVE_ADDR, native_addr_fn);
   jerryxx_set_property_function(exports, MSTR_NATIVE_OBJ, native_obj_fn);

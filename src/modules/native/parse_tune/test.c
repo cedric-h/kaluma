@@ -2,7 +2,7 @@
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
-#include "tone_map.h"
+#include "parse_tune.h"
 
 char *examples[] = {
   "166.66666666666666,\n"
@@ -81,7 +81,7 @@ int main(void) {
     memset(&nrs, 0, sizeof(nrs));
     nrs.str = examples[i];
     do {
-      printf("%ld chars left\n", strlen(examples[i]) - (nrs.str - examples[i]));
+      // printf("%ld chars left\n", strlen(examples[i]) - (nrs.str - examples[i]));
     } while (tune_parse(&nrs));
   }
 
